@@ -1,3 +1,20 @@
+# custom
+*.local
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.m4a
+*.opus
+*.aac
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.webm
+*.jpg
+*.jpeg
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 # Importa le librerie necessarie
-from helpers import transcribe_audio, summarize_transcription
+import helpers
 
 # Verifica input
 if len(sys.argv) < 2:
@@ -12,15 +12,15 @@ if len(sys.argv) < 2:
 
 input_audio_path = sys.argv[1]
 
-# Trascrizione
-trascrizione = transcribe_audio(input_audio_path)
-print("\n📄 Trascrizione:")
-print(trascrizione)
+result = helpers.transcribe_audio_azure(input_audio_path)
 
-# Riassunto
-if trascrizione and not trascrizione.startswith("Errore"):
-    print("\n🧠 Riassunto:")
-    riassunto = summarize_transcription(trascrizione)
-    print(riassunto)
-else:
-    print("\n⚠️ Impossibile riassumere: la trascrizione è vuota o non valida.")
+print("\n📄 Trascrizione:")
+print(result)
+
+# # Riassunto
+# if trascrizione and not trascrizione.startswith("Errore"):
+#     print("\n🧠 Riassunto:")
+#     riassunto = helpers.summarize_transcription(trascrizione)
+#     print(riassunto)
+# else:
+#     print("\n⚠️ Impossibile riassumere: la trascrizione è vuota o non valida.")

@@ -4,3 +4,4 @@ azure-cognitiveservices-speech==1.43.0
 python-dotenv==1.1.0
 python-telegram-bot==22.0
 pydub==0.25.1
+azure-storage-blob

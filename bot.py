@@ -12,7 +12,7 @@ except Exception as e:
     
 from helpers import (
     summarize_transcription, 
-    transcribe_audio
+    transcribe_audio_azure
 )
 
 
@@ -30,7 +30,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await file.download_to_drive(temp_ogg.name)
         wav_path = temp_ogg.name + ".wav"
         os.system(f"ffmpeg -i {temp_ogg.name} -ar 16000 -ac 1 {wav_path} -y")
-        transcription = transcribe_audio(wav_path)
+        transcription = transcribe_audio_azure(wav_path)
 
         if not transcription.strip():
             await update.message.reply_text("Non sono riuscito a trascrivere l'audio.")
