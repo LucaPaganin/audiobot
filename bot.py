@@ -4,11 +4,15 @@ import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 from dotenv import load_dotenv
+from logging_config import setup_logger
+
+# Configurazione del logger
+logger = setup_logger(__name__)
 
 try:
     load_dotenv()
 except Exception as e:
-    print(f"Errore nel caricamento del file .env: {e}")
+    logger.error(f"Errore nel caricamento del file .env: {e}")
     
 from helpers import (
     transcribe_audio_chunks,
@@ -77,7 +81,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
     except Exception as e:
         # Gestione degli errori
-        print(f"Errore durante l'elaborazione dell'audio: {e}")
+        logger.error(f"Errore durante l'elaborazione dell'audio: {e}", exc_info=True)
         await processing_message.edit_text(f"Si è verificato un errore durante l'elaborazione dell'audio: {str(e)[:100]}...")
 
 
@@ -85,7 +89,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     if not TOKEN:
-        print("Errore: Token Telegram non trovato. Impostalo nel file .env come TELEGRAM_BOT_TOKEN.")
+        logger.error("Errore: Token Telegram non trovato. Impostalo nel file .env come TELEGRAM_BOT_TOKEN.")
         return
         
     app = ApplicationBuilder().token(TOKEN).build()
@@ -93,7 +97,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
-    print("Bot avviato...")
+    logger.info("Bot avviato...")
     app.run_polling()
 
 if __name__ == "__main__":

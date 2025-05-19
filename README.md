@@ -8,6 +8,7 @@ AudioBot è un bot Telegram che trascrive messaggi audio di qualsiasi lunghezza 
 - **Elaborazione audio di qualsiasi lunghezza**: Divide gli audio lunghi in chunk e li processa in parallelo
 - **Riassunti intelligenti per audio lunghi**: Per audio più lunghi di 1 minuto e 30 secondi, genera un riassunto invece della trascrizione completa
 - **Gestione messaggi multipli**: Divide automaticamente i risultati lunghi in più messaggi per rispettare i limiti di Telegram
+- **Sistema di logging completo**: Registra tutte le operazioni in file di log rotanti per facilitare debug e monitoraggio
 
 ## Requisiti
 
@@ -60,6 +61,28 @@ Usa lo script di debug per testare la trascrizione di un file audio senza avviar
 python debug_audio.py /percorso/del/tuo/file/audio.wav
 ```
 
+### Logging
+
+Il sistema utilizza un sistema di logging completo che registra tutte le operazioni nei seguenti modi:
+
+- **Console**: Mostra i log in tempo reale durante l'esecuzione
+- **File di log**: Salva i log nella directory `logs/` con rotazione automatica
+  - I file sono nominati con il formato `audiobot_YYYYMMDD.log`
+  - Ogni file può raggiungere una dimensione massima di 10 MB
+  - Vengono mantenuti fino a 5 file di backup
+
+Per visualizzare i log salvati:
+
+```bash
+cat logs/audiobot_*.log
+```
+
+Per seguire i log in tempo reale durante l'esecuzione:
+
+```bash
+tail -f logs/audiobot_*.log
+```
+
 ## Dettagli Tecnici
 
 ### Architettura
@@ -68,6 +91,7 @@ python debug_audio.py /percorso/del/tuo/file/audio.wav
 - **Elaborazione Parallela**: Divide gli audio lunghi in chunk con sovrapposizione di 3 secondi per garantire continuità
 - **Riassunti**: Utilizza Gemini LLM via LangChain per generare riassunti di audio lunghi
 - **Gestione Messaggi**: Divide automaticamente i risultati lunghi in più messaggi rispettando il limite di 4096 caratteri di Telegram
+- **Sistema di Logging**: Implementa logging strutturato per tutte le operazioni con supporto per file e console
 
 ### File Principali
 
@@ -75,10 +99,13 @@ python debug_audio.py /percorso/del/tuo/file/audio.wav
 - `helpers.py`: Funzioni di utilità per elaborazione audio, trascrizione e riassunti
 - `prompts.py`: Prompt utilizzati per il riassunto con Gemini LLM
 - `debug_audio.py`: Script per testing delle funzionalità di elaborazione audio
+- `logging_config.py`: Configurazione centralizzata del sistema di logging
 
 ## Note di Implementazione
 
 - Il sistema usa ThreadPoolExecutor per processare i chunk audio in parallelo
 - La sovrapposizione di 3 secondi tra chunk garantisce continuità nella trascrizione
 - I file temporanei vengono eliminati automaticamente dopo l'uso
-- Per audio lunghi (>90s), viene generato un riassunto invece della trascrizione completa
+- Per audio lunghi (>90s), viene generato un riassunto per ogni chunk e poi uniti in un riassunto completo
+- I log forniscono informazioni dettagliate su ogni fase di elaborazione, inclusi tempi e dimensioni
+- La rotazione dei file di log garantisce che lo spazio disco non venga saturato

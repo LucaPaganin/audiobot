@@ -1,3 +1,4 @@
+# filepath: /home/lucapaganin/mystuff/audiobot/requirements.txt
 langchain==0.3.25
 langchain-google-genai==2.1.4
 azure-cognitiveservices-speech==1.43.0
@@ -5,3 +6,5 @@ python-dotenv==1.1.0
 python-telegram-bot==22.0
 pydub==0.25.1
 azure-storage-blob
+# Per supporto a logging avanzato
+colorlog>=6.8.0  # Per colorare i log nella console
