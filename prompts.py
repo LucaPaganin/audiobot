@@ -6,8 +6,8 @@ punctuation. The transcription is in Italian, so you should summarize it in Ital
 
 SUMMARY_PROMPT = """
 Summarize the following transcription in Italian.
+You MUST answer only with the summary, and do not include any other text.
 Transcription: {transcription}
-Summary:
 """
 
 PUNCTUATED_PROMPT = """
@@ -17,6 +17,6 @@ Directives:
 - Do not change the meaning of the transcription.
 - if you encounter a word which has no meaning, it may be due to a transcription error. 
   In that case, leave it as it is, but try to find the correct word in the Italian language, and add it in parentheses immediately after the word.
+- you MUST only answer with the punctuated transcription, and do not include any other text.
 Transcription: {transcription}
-Punctuated Transcription:
 """

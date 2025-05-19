@@ -47,9 +47,9 @@ AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION")
 TRANSCRIPTION_ENGINE = os.getenv("TRANSCRIPTION_ENGINE", "google-legacy")  # "azure" or "google"
 
 # Costanti per la gestione dell'audio
-CHUNK_DURATION_MS = 30 * 1000
+CHUNK_DURATION_MS = 60 * 1000
 OVERLAP_DURATION_MS = 3 * 1000
-MAX_TELEGRAM_MESSAGE_LENGTH = 4096  # Massimo caratteri per messaggio Telegram
+MAX_TELEGRAM_MESSAGE_LENGTH = 4000  # Massimo caratteri per messaggio Telegram
 LONG_AUDIO_THRESHOLD_MS = 90 * 1000
 
 
@@ -75,6 +75,22 @@ def convert_ogg_to_wav(ogg_path: str) -> str:
     except Exception as e:
         logger.error(f"Errore durante la conversione da ogg a wav: {e}", exc_info=True)
         raise RuntimeError(f"Errore durante la conversione da ogg a wav: {e}")
+
+
+def convert_audio_to_wav(input_path: str) -> str:
+    """
+    Converts an audio file to WAV format using ffmpeg.
+    
+    Args:
+        input_path (str): Path to the input audio file.
+    
+    Returns:
+        str: Path to the converted WAV file.
+    """
+    output_path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
+    command = f"ffmpeg -i {input_path} -ar 16000 -ac 1 {output_path} -y"
+    os.system(command)
+    return output_path
 
 
 def split_audio_file(audio_path: str) -> List[str]:
@@ -257,29 +273,44 @@ def transcribe_audio_chunks(audio_path: str) -> Tuple[str, bool]:
         logger.info("Audio più corto della soglia di chunking, elaborando come singolo file")
         chunks = [audio_path]
         
-    # Trascrivi tutti i chunk in parallelo usando ThreadPoolExecutor
-    logger.info(f"Inizio trascrizione di {len(chunks)} chunk audio in parallelo")
+    # Trascrivi tutti i chunk in gruppi di massimo 8
+    logger.info(f"Inizio trascrizione di {len(chunks)} chunk audio in gruppi di massimo 8")
     transcriptions = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        transcriptions = list(executor.map(transcribe_chunk, chunks))
-    logger.info("Trascrizione di tutti i chunk completata")
+    group_size = 8
+    n_groups, remainder = divmod(len(chunks), group_size)
+    if remainder > 0:
+        n_groups += 1
+    for i in range(0, n_groups):
+        group = chunks[i*group_size:(i + 1)*group_size]
+        logger.info(f"Elaborazione del gruppo {i + 1} contenente {len(group)} chunk")
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            transcriptions.extend(executor.map(transcribe_chunk, group))
+        logger.info(f"Gruppo {i + 1} completato")
+        if i != (n_groups - 1):
+            logger.info(f"Attesa di 15 secondi prima di elaborare il prossimo gruppo...")
+            time.sleep(15)
+    logger.info("Trascrizione di tutti i gruppi completata")
     
     # Se l'audio è più lungo della soglia per il riassunto, crea riassunti separati per ogni chunk
     is_summary = False
-    if duration_ms > LONG_AUDIO_THRESHOLD_MS:
-        logger.info(f"Audio più lungo di {LONG_AUDIO_THRESHOLD_MS/1000:.1f}s, creando riassunti...")
-        is_summary = True
-        # Processa i riassunti di ogni chunk in parallelo
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            chunk_summaries = list(executor.map(summarize_transcription, transcriptions))
+    # if duration_ms > LONG_AUDIO_THRESHOLD_MS:
+    #     logger.info(f"Audio più lungo di {LONG_AUDIO_THRESHOLD_MS/1000:.1f}s, creando riassunti...")
+    #     is_summary = True
+    #     # Processa i riassunti di ogni chunk in parallelo
+    #     with concurrent.futures.ThreadPoolExecutor() as executor:
+    #         chunk_summaries = list(executor.map(summarize_transcription, transcriptions))
         
-        # Unisci i riassunti dei chunk
-        result = " ".join(chunk_summaries)
-        logger.info(f"Riassunto completato: {len(result)} caratteri")
-    else:
-        # Unisci le trascrizioni senza riassumere
-        result = " ".join(transcriptions)
-        logger.info(f"Trascrizione completata: {len(result)} caratteri")
+    #     # Unisci i riassunti dei chunk
+    #     result = " ".join(chunk_summaries)
+    #     logger.info(f"Riassunto completato: {len(result)} caratteri")
+    # else:
+    #     # Unisci le trascrizioni senza riassumere
+    #     result = " ".join(transcriptions)
+    #     logger.info(f"Trascrizione completata: {len(result)} caratteri")
+    
+    # Unisci le trascrizioni senza riassumere
+    result = " ".join(transcriptions)
+    logger.info(f"Trascrizione completata: {len(result)} caratteri")
         
     # Pulisci i file temporanei (tranne l'originale)
     if len(chunks) > 1:
