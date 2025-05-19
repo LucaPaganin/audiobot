@@ -150,15 +150,42 @@ def transcribe_audio_azure(file_path: str) -> str:
     recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
     
     logger.info("Avvio riconoscimento vocale con Azure")
-    result = recognizer.recognize_once()
+    # one shot recognition
+    # result = recognizer.recognize_once()
     
-    if result.reason == speechsdk.ResultReason.RecognizedSpeech:
-        text_len = len(result.text)
-        logger.info(f"Trascrizione completata con successo: {text_len} caratteri")
-        return result.text
-    else:
-        logger.warning(f"Trascrizione fallita: {result.reason}")
-        return "Errore nella trascrizione o audio non riconosciuto."
+    # if result.reason == speechsdk.ResultReason.RecognizedSpeech:
+    #     text_len = len(result.text)
+    #     logger.info(f"Trascrizione completata con successo: {text_len} caratteri")
+    #     return result.text
+    # else:
+    #     logger.warning(f"Trascrizione fallita: {result.reason}")
+    #     return "Errore nella trascrizione o audio non riconosciuto."
+    # Use continuous recognition
+    logger.info("Avvio riconoscimento vocale continuo con Azure")
+    all_results = []
+
+    def handle_recognized(evt):
+        logger.debug(f"Testo riconosciuto: {evt.result.text}")
+        all_results.append(evt.result.text)
+
+    def handle_canceled(evt):
+        logger.warning(f"Riconoscimento annullato: {evt.reason}, Dettagli: {evt.error_details}")
+
+    recognizer.recognized.connect(handle_recognized)
+    recognizer.canceled.connect(handle_canceled)
+
+    recognizer.start_continuous_recognition()
+    recognizer.session_started.connect(lambda evt: logger.info("Sessione iniziata"))
+    recognizer.session_stopped.connect(lambda evt: logger.info("Sessione terminata"))
+
+    # Wait for the recognition to complete
+    recognizer.session_stopped.connect(lambda evt: recognizer.stop_continuous_recognition())
+    recognizer.stop_continuous_recognition()
+
+    # Concatenate all recognized text
+    full_transcription = " ".join(all_results)
+    logger.info(f"Trascrizione completa: {len(full_transcription)} caratteri")
+    return full_transcription
 
 
 def transcribe_chunk(chunk_path: str) -> str:
