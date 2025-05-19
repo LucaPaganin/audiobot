@@ -10,12 +10,17 @@
             "request": "launch",
             "program": "${workspaceFolder}/debug_audio.py",
             "console": "integratedTerminal",
-            "args": [
-                // "conversazione.wav",
-                // "test.wav",
-                // "/mnt/c/Users/LP031/Downloads/WhatsApp Ptt 2025-05-17 at 12.00.22.ogg",
-                "/mnt/c/Users/LP031/Downloads/WhatsApp Ptt 2025-05-19 at 12.05.24.ogg",
+            "cwd": "${workspaceFolder}",
+            "windows": {
+                "args": [
+                    "${env:USERPROFILE}/Downloads/audio2.ogg",
             ]
+            },
+            "linux": {
+                "args": [
+                    "${env:HOME}/Downloads/audio1.ogg",
+                ]
+            }
         },
         {
             "name": "Python: bot.py",

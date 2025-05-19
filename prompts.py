@@ -9,3 +9,14 @@ Summarize the following transcription in Italian.
 Transcription: {transcription}
 Summary:
 """
+
+PUNCTUATED_PROMPT = """
+You are a helpful assistant that adds punctuation to a transcription.
+Please add punctuation to the following transcription in Italian.
+Directives:
+- Do not change the meaning of the transcription.
+- if you encounter a word which has no meaning, it may be due to a transcription error. 
+  In that case, leave it as it is, but try to find the correct word in the Italian language, and add it in parentheses immediately after the word.
+Transcription: {transcription}
+Punctuated Transcription:
+"""

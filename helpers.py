@@ -5,9 +5,8 @@ from pydub import AudioSegment
 import azure.cognitiveservices.speech as speechsdk
 from langchain.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
-from prompts import SYSTEM_PROMPT, SUMMARY_PROMPT
+from prompts import SYSTEM_PROMPT, SUMMARY_PROMPT, PUNCTUATED_PROMPT
 from langchain_core.output_parsers import StrOutputParser
-from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
 from datetime import datetime, timedelta
 import requests
 import time
@@ -16,6 +15,7 @@ import contextlib
 import concurrent.futures
 from typing import List, Tuple, Dict
 from logging_config import setup_logger
+import speech_recognition as sr
 
 # Configurazione del logger
 logger = setup_logger(__name__)
@@ -24,28 +24,33 @@ logger = setup_logger(__name__)
 GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
+    model=os.getenv("GOOGLE_GEMINI_MODEL", "gemini-2.0-flash"),
     temperature=0,
-    max_tokens=2000,
+    max_tokens=20000,
     timeout=None,
-    max_retries=2,
+    max_retries=5,
     # other params...
 )
 
 summary_prompt = PromptTemplate.from_template(
     SUMMARY_PROMPT
 )
-summary_chain = summary_prompt | llm | StrOutputParser()
+SUMMARY_CHAIN = summary_prompt | llm | StrOutputParser()
+PUNCTUATION_CHAIN = PromptTemplate.from_template(
+    PUNCTUATED_PROMPT
+) | llm | StrOutputParser()
 
 # Config Azure Speech
 AZURE_SPEECH_KEY = os.getenv("AZURE_SPEECH_KEY")
 AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION")
 
+TRANSCRIPTION_ENGINE = os.getenv("TRANSCRIPTION_ENGINE", "google-legacy")  # "azure" or "google"
+
 # Costanti per la gestione dell'audio
-CHUNK_DURATION_MS = 60 * 1000  # 60 secondi per chunk
-OVERLAP_DURATION_MS = 3 * 1000  # 3 secondi di sovrapposizione
+CHUNK_DURATION_MS = 30 * 1000
+OVERLAP_DURATION_MS = 3 * 1000
 MAX_TELEGRAM_MESSAGE_LENGTH = 4096  # Massimo caratteri per messaggio Telegram
-LONG_AUDIO_THRESHOLD_MS = 90 * 1000  # 1 minuto e 30 secondi
+LONG_AUDIO_THRESHOLD_MS = 90 * 1000
 
 
 def get_wav_duration(file_path: str) -> float:
@@ -126,6 +131,8 @@ def split_audio_file(audio_path: str) -> List[str]:
 
 
 # Funzione per trascrivere con Azure Speech
+# non funziona, ci vuole il paid TIER
+################# DEPRECATA ######################
 def transcribe_audio_azure(file_path: str) -> str:
     logger.info(f"Iniziata trascrizione Azure Speech per il file: {file_path}")
     
@@ -186,7 +193,26 @@ def transcribe_audio_azure(file_path: str) -> str:
     full_transcription = " ".join(all_results)
     logger.info(f"Trascrizione completa: {len(full_transcription)} caratteri")
     return full_transcription
+################# DEPRECATA ######################
 
+def transcribe_audio_google(file_path: str) -> str:
+    logger.info(f"Iniziata trascrizione Google Speech per il file: {file_path}")
+    recognizer = sr.Recognizer()
+    # Controlla se il file esiste
+    if not Path(file_path).is_file():
+        logger.error(f"File non trovato: {file_path}")
+        raise FileNotFoundError(f"File non trovato: {file_path}")
+
+    with sr.AudioFile(file_path) as source:
+        audio_data = sr.Recognizer().record(source)
+        text = recognizer.recognize_google(audio_data, language="it-IT")
+    logger.info(f"Trascrizione completata con Google Speech: {len(text)} caratteri")
+    logger.info("Invio a Gemini per punteggiatura")
+    # Invia il testo a Gemini per la punteggiatura
+    punctuated_text = PUNCTUATION_CHAIN.invoke({"transcription": text})
+    logger.info(f"Trascrizione punteggiata: {len(punctuated_text)} caratteri")
+
+    return punctuated_text
 
 def transcribe_chunk(chunk_path: str) -> str:
     """
@@ -194,7 +220,10 @@ def transcribe_chunk(chunk_path: str) -> str:
     Da usare con ThreadPoolExecutor.
     """
     logger.debug(f"Iniziata trascrizione del chunk: {chunk_path}")
-    result = transcribe_audio_azure(chunk_path)
+    if TRANSCRIPTION_ENGINE == "google-legacy":
+        result = transcribe_audio_google(chunk_path)
+    else:
+        result = transcribe_audio_azure(chunk_path)
     logger.debug(f"Terminata trascrizione del chunk: {chunk_path}")
     return result
 
@@ -266,7 +295,7 @@ def transcribe_audio_chunks(audio_path: str) -> Tuple[str, bool]:
 
 def summarize_transcription(transcription: str) -> str:
     logger.debug(f"Iniziata sintesi di un testo di {len(transcription)} caratteri")
-    summary = summary_chain.invoke({"transcription": transcription})
+    summary = SUMMARY_CHAIN.invoke({"transcription": transcription})
     logger.debug(f"Terminata sintesi: prodotti {len(summary)} caratteri")
     return summary
 
