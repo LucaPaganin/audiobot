@@ -12,7 +12,8 @@
             "console": "integratedTerminal",
             "args": [
                 // "conversazione.wav",
-                "test.wav",
+                // "test.wav",
+                "/mnt/c/Users/LP031/Downloads/WhatsApp Ptt 2025-05-17 at 12.00.22.ogg",
             ]
         }
     ]

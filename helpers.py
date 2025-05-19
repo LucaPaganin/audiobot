@@ -13,6 +13,8 @@ import requests
 import time
 import wave
 import contextlib
+import concurrent.futures
+from typing import List, Tuple, Dict
 
 # Config Gemini (qui usiamo ChatOpenAI come placeholder)
 GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -35,6 +37,11 @@ summary_chain = summary_prompt | llm | StrOutputParser()
 AZURE_SPEECH_KEY = os.getenv("AZURE_SPEECH_KEY")
 AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION")
 
+# Costanti per la gestione dell'audio
+CHUNK_DURATION_MS = 60 * 1000  # 60 secondi per chunk
+OVERLAP_DURATION_MS = 3 * 1000  # 3 secondi di sovrapposizione
+MAX_TELEGRAM_MESSAGE_LENGTH = 4096  # Massimo caratteri per messaggio Telegram
+LONG_AUDIO_THRESHOLD_MS = 90 * 1000  # 1 minuto e 30 secondi
 
 
 def get_wav_duration(file_path: str) -> float:
@@ -55,6 +62,52 @@ def convert_ogg_to_wav(ogg_path: str) -> str:
     except Exception as e:
         raise RuntimeError(f"Errore durante la conversione da ogg a wav: {e}")
 
+
+def split_audio_file(audio_path: str) -> List[str]:
+    """
+    Divide un file audio in chunk con sovrapposizione.
+    
+    Args:
+        audio_path: Percorso del file audio da dividere
+        
+    Returns:
+        Lista di percorsi ai file audio temporanei
+    """
+    try:
+        # Carica l'audio
+        audio = AudioSegment.from_file(audio_path)
+        
+        # Lunghezza totale dell'audio in millisecondi
+        total_duration = len(audio)
+        
+        chunk_files = []
+        
+        # Se l'audio è più corto della dimensione di un chunk, lo restituiamo così com'è
+        if total_duration <= CHUNK_DURATION_MS:
+            return [audio_path]
+        
+        # Altrimenti lo dividiamo in chunk con sovrapposizione
+        for start_ms in range(0, total_duration, CHUNK_DURATION_MS - OVERLAP_DURATION_MS):
+            # Calcola l'inizio e la fine del chunk
+            end_ms = min(start_ms + CHUNK_DURATION_MS, total_duration)
+            
+            # Estrai il chunk
+            chunk = audio[start_ms:end_ms]
+            
+            # Salva il chunk in un file temporaneo
+            temp_chunk = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+            chunk.export(temp_chunk.name, format="wav")
+            chunk_files.append(temp_chunk.name)
+            
+            # Se siamo arrivati alla fine dell'audio, usciamo dal ciclo
+            if end_ms >= total_duration:
+                break
+                
+        return chunk_files
+    except Exception as e:
+        raise RuntimeError(f"Errore durante la divisione dell'audio: {e}")
+
+
 # Funzione per trascrivere con Azure Speech
 def transcribe_audio_azure(file_path: str) -> str:
     speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
@@ -71,7 +124,7 @@ def transcribe_audio_azure(file_path: str) -> str:
         raise FileNotFoundError(f"File non trovato: {file_path}")
     
     
-    audio_config = speechsdk.AudioConfig(filename=file_path)
+    audio_config = speechsdk.AudioConfig(filename=str(file_path))
     recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
     result = recognizer.recognize_once()
     
@@ -81,139 +134,123 @@ def transcribe_audio_azure(file_path: str) -> str:
         return "Errore nella trascrizione o audio non riconosciuto."
 
 
+def transcribe_chunk(chunk_path: str) -> str:
+    """
+    Funzione per trascrivere un singolo chunk audio.
+    Da usare con ThreadPoolExecutor.
+    """
+    return transcribe_audio_azure(chunk_path)
+
+
+def transcribe_audio_chunks(audio_path: str) -> Tuple[str, bool]:
+    """
+    Trascrive un file audio dividendolo in chunk e processandoli in parallelo.
+    
+    Args:
+        audio_path: Percorso del file audio da trascrivere
+        
+    Returns:
+        Tuple[str, bool]: (Testo trascritto o riassunto, flag che indica se è un riassunto)
+    """
+    # Converti OGG in WAV se necessario
+    file_path = Path(audio_path)
+    if file_path.suffix == ".ogg":
+        audio_path = convert_ogg_to_wav(audio_path)
+        
+    # Ottieni la durata dell'audio
+    duration_ms = get_wav_duration(audio_path) * 1000
+    
+    # Dividi l'audio in chunk solo se è più lungo della soglia
+    if duration_ms > CHUNK_DURATION_MS:
+        chunks = split_audio_file(audio_path)
+    else:
+        chunks = [audio_path]
+        
+    # Trascrivi tutti i chunk in parallelo usando ThreadPoolExecutor
+    transcriptions = []
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        transcriptions = list(executor.map(transcribe_chunk, chunks))
+        
+    # Unisci le trascrizioni
+    full_transcription = " ".join(transcriptions)
+    
+    # Se l'audio è più lungo della soglia per il riassunto, genera un riassunto
+    is_summary = False
+    if duration_ms > LONG_AUDIO_THRESHOLD_MS:
+        result = summarize_transcription(full_transcription)
+        is_summary = True
+    else:
+        result = full_transcription
+        
+    # Pulisci i file temporanei (tranne l'originale)
+    if len(chunks) > 1:
+        for chunk in chunks:
+            try:
+                os.unlink(chunk)
+            except:
+                pass
+                
+    return result, is_summary
+
+
 def summarize_transcription(transcription: str) -> str:
     summary = summary_chain.invoke({"transcription": transcription})
     return summary
 
 
-def upload_to_blob_with_sas(
-    file_path: str,
-    blob_name: str = None,
-    expiry_minutes: int = 60
-) -> str:
+def split_text_for_telegram(text: str) -> List[str]:
     """
-    Upload a file to Azure Blob Storage and return a URL with SAS token.
-
-    Parameters:
-        file_path: Path to the local audio file.
-        connection_string: Azure Blob Storage connection string.
-        container_name: Name of the container.
-        blob_name: Name of the blob (optional, defaults to file name).
-        expiry_minutes: SAS token expiry duration.
-
-    Returns:
-        URL with SAS token for public access.
-    """
-    AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-    AZURE_STORAGE_CONTAINER_NAME = os.getenv("AZURE_STORAGE_CONTAINER_NAME")
-    if not AZURE_STORAGE_CONNECTION_STRING or not AZURE_STORAGE_CONTAINER_NAME:
-        raise ValueError("Azure Storage connection string or container name not set in environment variables.")
-    if not os.path.isfile(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
-
-    blob_name = blob_name or os.path.basename(file_path)
-
-    blob_service = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
-    container_client = blob_service.get_container_client(AZURE_STORAGE_CONTAINER_NAME)
-
-    # Create container if not exists
-    if not container_client.exists():
-        container_client.create_container()
-
-    # Upload blob
-    blob_client = container_client.get_blob_client(blob_name)
-    with open(file_path, "rb") as f:
-        blob_client.upload_blob(f, overwrite=True)
-
-    # Generate SAS token
-    sas_token = generate_blob_sas(
-        account_name=blob_service.account_name,
-        container_name=AZURE_STORAGE_CONTAINER_NAME,
-        blob_name=blob_name,
-        account_key=blob_service.credential.account_key,
-        permission=BlobSasPermissions(read=True),
-        expiry=datetime.utcnow() + timedelta(minutes=expiry_minutes)
-    )
-
-    blob_url = f"{blob_client.url}?{sas_token}"
-    return blob_url
-
-
-def transcribe_long_audio_with_rest(
-    audio_url: str,
-    language: str = "it-IT",
-    output_file: str = "transcription.txt",
-    display_name: str = "LongAudioTranscription"
-) -> str:
-    """
-    Transcribe a long audio file using Azure Speech batch transcription (REST API).
-
-    Parameters:
-        audio_url (str): Public URL of the audio file with SAS token if needed.
-        azure_key (str): Azure Speech resource key.
-        azure_region (str): Azure region (e.g., 'westeurope').
-        language (str): Locale of the audio, e.g., 'it-IT'.
-        output_file (str): Path to save the transcription result.
-        display_name (str): A display name for the transcription job.
-
-    Returns:
-        str: Transcription content or path to saved file.
-    """
+    Divide il testo in parti che non superano il limite massimo di caratteri di Telegram.
     
-    # 1. Create transcription job
-    endpoint = f"https://{AZURE_SPEECH_REGION}.api.cognitive.microsoft.com/speechtotext/v3.1/transcriptions"
+    Args:
+        text: Testo da dividere
+        
+    Returns:
+        Lista di stringhe, ciascuna non più lunga di MAX_TELEGRAM_MESSAGE_LENGTH
+    """
+    if len(text) <= MAX_TELEGRAM_MESSAGE_LENGTH:
+        return [text]
+        
+    parts = []
     
-    headers = {
-        "Ocp-Apim-Subscription-Key": AZURE_SPEECH_KEY,
-        "Content-Type": "application/json"
-    }
+    # Dividi per paragrafi se possibile
+    paragraphs = text.split("\n\n")
+    current_part = ""
+    
+    for paragraph in paragraphs:
+        # Se questo paragrafo da solo è già troppo grande, dividi ulteriormente
+        if len(paragraph) > MAX_TELEGRAM_MESSAGE_LENGTH:
+            # Se abbiamo già del testo nella parte corrente, aggiungiamolo
+            if current_part:
+                parts.append(current_part)
+                current_part = ""
+                
+            # Dividi questo paragrafo in parti più piccole (per frasi)
+            sentences = paragraph.replace(". ", ".\n").split("\n")
+            sub_part = ""
+            
+            for sentence in sentences:
+                if len(sub_part) + len(sentence) + 1 <= MAX_TELEGRAM_MESSAGE_LENGTH:
+                    sub_part += sentence + " "
+                else:
+                    if sub_part:
+                        parts.append(sub_part.strip())
+                    sub_part = sentence + " "
+            
+            if sub_part:
+                parts.append(sub_part.strip())
+        else:
+            # Controlliamo se possiamo aggiungere questo paragrafo alla parte corrente
+            if len(current_part) + len(paragraph) + 2 <= MAX_TELEGRAM_MESSAGE_LENGTH:
+                current_part += (paragraph + "\n\n")
+            else:
+                if current_part:
+                    parts.append(current_part.strip())
+                current_part = paragraph + "\n\n"
+    
+    # Aggiungi l'ultima parte se necessario
+    if current_part:
+        parts.append(current_part.strip())
+        
+    return parts
 
-    body = {
-        "displayName": display_name,
-        "locale": language,
-        "contentUrls": [audio_url],
-        "properties": {
-            "diarizationEnabled": True,
-            "wordLevelTimestampsEnabled": True,
-            "punctuationMode": "DictatedAndAutomatic",
-            "profanityFilterMode": "Masked"
-        }
-    }
-
-    response = requests.post(endpoint, headers=headers, json=body)
-    if response.status_code != 202:
-        raise Exception(f"Failed to create transcription: {response.status_code}\n{response.text}")
-
-    transcription_url = response.headers["Location"]
-    print(f"Transcription job created: {transcription_url}")
-
-    # 2. Poll status
-    print("Waiting for transcription to complete...")
-    while True:
-        status_resp = requests.get(transcription_url, headers=headers)
-        status_data = status_resp.json()
-        status = status_data["status"]
-        print(f"Status: {status}")
-        if status in ["Succeeded", "Failed"]:
-            break
-        time.sleep(10)
-
-    if status == "Failed":
-        raise Exception("Transcription failed.")
-
-    # 3. Download results
-    results_urls = status_data.get("resultsUrls", {})
-    transcription_uri = results_urls.get("transcription")
-
-    if not transcription_uri:
-        raise Exception("No transcription URL found in results.")
-
-    result_resp = requests.get(transcription_uri)
-    result_text = result_resp.text
-
-    if len(result_text) < 1000:
-        return result_text
-    else:
-        with open(output_file, "w", encoding="utf-8") as f:
-            f.write(result_text)
-        return f"Transcription too long, saved to {output_file}"
