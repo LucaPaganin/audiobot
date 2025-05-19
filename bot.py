@@ -3,6 +3,7 @@ import tempfile
 import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
+import concurrent.futures
 from dotenv import load_dotenv
 from logging_config import setup_logger
 
@@ -17,7 +18,8 @@ except Exception as e:
 from helpers import (
     transcribe_audio_chunks,
     split_text_for_telegram,
-    convert_audio_to_wav  # Import the new utility function
+    convert_audio_to_wav,
+    summarize_transcription
 )
 
 
@@ -80,7 +82,18 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Invia i messaggi rimanenti (se presenti)
             for part in text_parts[1:]:
                 await update.message.reply_text(part)
-                
+            
+            # Invia riassunti se il primo messaggio è più lungo di 2000 caratteri
+            if len(text_parts[0]) > 2000:
+                await update.message.reply_text("Le trascrizioni sono lunghe, invio i riassunti...")
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    chunk_summaries = list(executor.map(summarize_transcription, text_parts))
+                for i, summary in enumerate(chunk_summaries):
+                    if summary:
+                        await update.message.reply_text(f"Riassunto {i+1}:\n{summary}")
+                    else:
+                        await update.message.reply_text(f"Riassunto {i+1} non disponibile.")
+
     except Exception as e:
         # Gestione degli errori
         logger.error(f"Errore durante l'elaborazione dell'audio: {e}", exc_info=True)

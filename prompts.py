@@ -18,5 +18,8 @@ Directives:
 - if you encounter a word which has no meaning, it may be due to a transcription error. 
   In that case, leave it as it is, but try to find the correct word in the Italian language, and add it in parentheses immediately after the word.
 - you MUST only answer with the punctuated transcription, and do not include any other text.
+- after long paragraphs, add a new line. Remember to add a new line only after long paragraphs, not after every sentence.
+  Also, before adding a new line, finish the sentence.
+- try to identify when the speaker is reporting a dialogue, and add the correct punctuation.
 Transcription: {transcription}
 """
