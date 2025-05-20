@@ -17,6 +17,7 @@ except Exception as e:
     
 from helpers import (
     transcribe_audio_chunks,
+    transcribe_audio_chunks_async,
     split_text_for_telegram,
     convert_audio_to_wav,
     summarize_transcription
@@ -53,7 +54,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             wav_path = convert_audio_to_wav(temp_audio.name)
             
             # Elabora l'audio (trascrive o riassume in base alla lunghezza)
-            result_text, is_summary = transcribe_audio_chunks(wav_path)
+            # result_text = transcribe_audio_chunks(wav_path)
+            result_text = await transcribe_audio_chunks_async(wav_path)
             
             # Elimina i file temporanei
             try:
@@ -74,7 +76,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # await processing_message.delete()
             
             # Prepara l'intestazione in base al tipo di elaborazione
-            header = "📝 **Trascrizione:**\n\n" if not is_summary else "📌 **Riassunto dell'audio:**\n\n"
+            header = "📝 **Trascrizione:**\n\n"
             
             # Invia il primo messaggio con l'intestazione
             await processing_message.edit_text(f"{header}{text_parts[0]}")

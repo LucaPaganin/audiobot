@@ -8,7 +8,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from prompts import SYSTEM_PROMPT, SUMMARY_PROMPT, PUNCTUATED_PROMPT
 from langchain_core.output_parsers import StrOutputParser
 from datetime import datetime, timedelta
-import requests
+import asyncio
 import time
 import wave
 import contextlib
@@ -244,7 +244,7 @@ def transcribe_chunk(chunk_path: str) -> str:
     return result
 
 
-def transcribe_audio_chunks(audio_path: str) -> Tuple[str, bool]:
+def transcribe_audio_chunks(audio_path: str) -> str:
     """
     Trascrive un file audio dividendolo in chunk e processandoli in parallelo.
     
@@ -252,7 +252,7 @@ def transcribe_audio_chunks(audio_path: str) -> Tuple[str, bool]:
         audio_path: Percorso del file audio da trascrivere
         
     Returns:
-        Tuple[str, bool]: (Testo trascritto o riassunto, flag che indica se è un riassunto)
+        str: Testo trascritto
     """
     logger.info(f"Inizio elaborazione audio: {audio_path}")
     
@@ -290,24 +290,7 @@ def transcribe_audio_chunks(audio_path: str) -> Tuple[str, bool]:
             logger.info(f"Attesa di 15 secondi prima di elaborare il prossimo gruppo...")
             time.sleep(15)
     logger.info("Trascrizione di tutti i gruppi completata")
-    
-    # Se l'audio è più lungo della soglia per il riassunto, crea riassunti separati per ogni chunk
-    is_summary = False
-    # if duration_ms > LONG_AUDIO_THRESHOLD_MS:
-    #     logger.info(f"Audio più lungo di {LONG_AUDIO_THRESHOLD_MS/1000:.1f}s, creando riassunti...")
-    #     is_summary = True
-    #     # Processa i riassunti di ogni chunk in parallelo
-    #     with concurrent.futures.ThreadPoolExecutor() as executor:
-    #         chunk_summaries = list(executor.map(summarize_transcription, transcriptions))
-        
-    #     # Unisci i riassunti dei chunk
-    #     result = " ".join(chunk_summaries)
-    #     logger.info(f"Riassunto completato: {len(result)} caratteri")
-    # else:
-    #     # Unisci le trascrizioni senza riassumere
-    #     result = " ".join(transcriptions)
-    #     logger.info(f"Trascrizione completata: {len(result)} caratteri")
-    
+      
     # Unisci le trascrizioni senza riassumere
     result = " ".join(transcriptions)
     logger.info(f"Trascrizione completata: {len(result)} caratteri")
@@ -320,8 +303,8 @@ def transcribe_audio_chunks(audio_path: str) -> Tuple[str, bool]:
                 os.unlink(chunk)
             except Exception as e:
                 logger.warning(f"Impossibile eliminare il file temporaneo {chunk}: {e}")
-                
-    return result, is_summary
+
+    return result
 
 
 def summarize_transcription(transcription: str) -> str:
@@ -390,3 +373,68 @@ def split_text_for_telegram(text: str) -> List[str]:
     logger.info(f"Testo diviso in {len(parts)} parti per Telegram")
     return parts
 
+async def transcribe_audio_chunks_async(audio_path: str) -> str:
+    """
+    Async: Trascrive un file audio dividendolo in chunk e processandoli in parallelo.
+
+    Args:
+        audio_path: Percorso del file audio da trascrivere
+
+    Returns:
+        str: Testo trascritto o riassunto
+    """
+    logger.info(f"Inizio elaborazione audio: {audio_path}")
+
+    # Conversione OGG → WAV se necessario
+    file_path = Path(audio_path)
+    if file_path.suffix == ".ogg":
+        audio_path = await asyncio.to_thread(convert_ogg_to_wav, audio_path)
+
+    # Durata in millisecondi
+    duration_ms = await asyncio.to_thread(get_wav_duration, audio_path)
+    duration_ms *= 1000
+    logger.info(f"Durata audio: {duration_ms/1000:.2f} secondi")
+
+    # Chunking
+    if duration_ms > CHUNK_DURATION_MS:
+        logger.info("Audio più lungo della soglia di chunking, dividendo in parti...")
+        chunks = await asyncio.to_thread(split_audio_file, audio_path)
+    else:
+        logger.info("Audio più corto della soglia di chunking, elaborando come singolo file")
+        chunks = [audio_path]
+
+    logger.info(f"Inizio trascrizione di {len(chunks)} chunk audio in gruppi di massimo 8")
+    transcriptions = []
+    group_size = 8
+    n_groups, remainder = divmod(len(chunks), group_size)
+    if remainder > 0:
+        n_groups += 1
+
+    for i in range(n_groups):
+        group = chunks[i * group_size : (i + 1) * group_size]
+        logger.info(f"Elaborazione del gruppo {i + 1} contenente {len(group)} chunk")
+
+        # Esegui la trascrizione dei chunk in parallelo
+        tasks = [asyncio.to_thread(transcribe_chunk, chunk) for chunk in group]
+        results = await asyncio.gather(*tasks)
+        transcriptions.extend(results)
+
+        logger.info(f"Gruppo {i + 1} completato")
+        if i != (n_groups - 1):
+            logger.info("Attesa di 15 secondi prima di elaborare il prossimo gruppo...")
+            await asyncio.sleep(15)
+
+    logger.info("Trascrizione di tutti i gruppi completata")
+    result = " ".join(transcriptions)
+    logger.info(f"Trascrizione completata: {len(result)} caratteri")
+
+    # Pulizia dei file temporanei
+    if len(chunks) > 1:
+        logger.info("Pulizia dei file temporanei...")
+        for chunk in chunks:
+            try:
+                await asyncio.to_thread(os.unlink, chunk)
+            except Exception as e:
+                logger.warning(f"Impossibile eliminare il file temporaneo {chunk}: {e}")
+
+    return result
