@@ -102,22 +102,25 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processing_message.edit_text(f"Si è verificato un errore durante l'elaborazione dell'audio: {str(e)[:100]}...")
 
 
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not TOKEN:
+    raise Exception("Errore: Token Telegram non trovato. Impostalo nel file .env come TELEGRAM_BOT_TOKEN.")
+    
+bot_app = ApplicationBuilder().token(TOKEN).build()
 
-# Main
+bot_app.add_handler(CommandHandler("start", start))
+bot_app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+bot_app.add_handler(MessageHandler(filters.AUDIO, handle_voice))
+
 def main():
-    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not TOKEN:
-        logger.error("Errore: Token Telegram non trovato. Impostalo nel file .env come TELEGRAM_BOT_TOKEN.")
-        return
-        
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    app.add_handler(MessageHandler(filters.AUDIO, handle_voice))
-
-    logger.info("Bot avviato...")
-    app.run_polling()
+    """
+    Funzione principale per avviare il bot.
+    """
+    try:
+        logger.info("Avvio del bot...")
+        bot_app.run_polling()
+    except Exception as e:
+        logger.error(f"Errore durante l'avvio del bot: {e}", exc_info=True)
 
 if __name__ == "__main__":
     main()

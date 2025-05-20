@@ -9,3 +9,5 @@ azure-storage-blob
 # Per supporto a logging avanzato
 colorlog>=6.8.0  # Per colorare i log nella console
 SpeechRecognition==3.14.3
+FastAPI==0.115.12
+uvicorn==0.34.2

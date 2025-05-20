@@ -29,4 +29,4 @@ COPY requirements.txt /codebase/requirements.txt
 RUN pip3 install --no-cache-dir -r requirements.txt
 COPY *.py /codebase/
 
-CMD ["python3", "/codebase/bot.py"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
