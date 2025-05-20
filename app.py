@@ -33,4 +33,4 @@ async def health():
 
 if __name__ == "__main__":
     # Avvia FastAPI (serve per mantenere vivo il container)
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=80)

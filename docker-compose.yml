@@ -13,4 +13,4 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     restart: always
     ports:
-      - "8000:8000"
+      - "80:80"
