@@ -1,0 +1,18 @@
+version: "3"
+
+services:
+  bot:
+    build:
+      context: "."
+      dockerfile: Dockerfile
+    environment:
+      - AZURE_SPEECH_KEY=${AZURE_SPEECH_KEY}
+      - AZURE_SPEECH_REGION=${AZURE_SPEECH_REGION}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GOOGLE_GEMINI_MODEL=${GOOGLE_GEMINI_MODEL}
+      - TRANSCRIPTION_ENGINE=${TRANSCRIPTION_ENGINE}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    volumes:
+      - "/codebase:/codebase"
+      - "/storage:/storage"
+    restart: always
